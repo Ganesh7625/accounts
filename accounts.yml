@@ -52,108 +52,108 @@ phases:
       - printf '{"ImageURI":"%s"}' ${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.region}.amazonaws.com/${var.cicd_conf.codebuild_environment_variables.accounts.pre-prod-tevico-accounts}:V1 > imageDetail.json
       - cat imageDetail.json
       - echo end of build phase      
-  post_build:
-    commands:
-      - echo Checking ECR scan results
-      - |
+#   post_build:
+#     commands:
+#       - echo Checking ECR scan results
+#       - |
         
-        export X=1 && echo $X
-        while [ $X -le 5 ]
-        do
-          echo Waiting for 1 min
-          sleep 60
+#         export X=1 && echo $X
+#         while [ $X -le 5 ]
+#         do
+#           echo Waiting for 1 min
+#           sleep 60
           
-          # Check if ECR scan results are ready
-          SCAN_COMPLETE=$(aws ecr describe-images --repository-name pre-prod-tevico-accounts --image-id imageTag=V1 --region $AWS_DEFAULT_REGION | jq -r '.imageDetails[0].imageScanStatus.status')
-          echo $SCAN_COMPLETE
+#           # Check if ECR scan results are ready
+#           SCAN_COMPLETE=$(aws ecr describe-images --repository-name pre-prod-tevico-accounts --image-id imageTag=V1 --region $AWS_DEFAULT_REGION | jq -r '.imageDetails[0].imageScanStatus.status')
+#           echo $SCAN_COMPLETE
           
-          if [ ${SCAN_COMPLETE} = "COMPLETE" ]; then
-            echo ECR scan is complete
-            break
-          else
-            echo Scan is not yet complete
-          fi
+#           if [ ${SCAN_COMPLETE} = "COMPLETE" ]; then
+#             echo ECR scan is complete
+#             break
+#           else
+#             echo Scan is not yet complete
+#           fi
           
-          X=$((X+1))
-          # If $X is 6, image scan is not COMPLETE for 5 min
-          if [ $X -eq 6 ]; then
-            echo ECR scan is not COMPLETE until 5 min
-            exit 1
-          fi          
-        done
+#           X=$((X+1))
+#           # If $X is 6, image scan is not COMPLETE for 5 min
+#           if [ $X -eq 6 ]; then
+#             echo ECR scan is not COMPLETE until 5 min
+#             exit 1
+#           fi          
+#         done
         
-        IMAGE_FOUND_IN_ECR=$(aws ecr describe-images --repository-name pre-prod-tevico-accounts --image-id imageTag=V1 --region $AWS_DEFAULT_REGION)        
-        if [ $? -eq 0 ]; then
+#         IMAGE_FOUND_IN_ECR=$(aws ecr describe-images --repository-name pre-prod-tevico-accounts --image-id imageTag=V1 --region $AWS_DEFAULT_REGION)        
+#         if [ $? -eq 0 ]; then
         
-          aws ecr describe-image-scan-findings --repository-name pre-prod-tevico-accounts --image-id imageTag=V1 --region $AWS_DEFAULT_REGION | jq -r '.imageScanFindings' | jq -r '.findings' > findings.json
+#           aws ecr describe-image-scan-findings --repository-name pre-prod-tevico-accounts --image-id imageTag=V1 --region $AWS_DEFAULT_REGION | jq -r '.imageScanFindings' | jq -r '.findings' > findings.json
 
-          if [ ! -z findings.json ]; then
-            SCAN_RESULTS=$(cat findings.json | jq -r '.[] | select((.severity == "HIGH") or (.severity == "CRITICAL")) | .severity' | wc -l)
-            echo $SCAN_RESULTS
+#           if [ ! -z findings.json ]; then
+#             SCAN_RESULTS=$(cat findings.json | jq -r '.[] | select((.severity == "HIGH") or (.severity == "CRITICAL")) | .severity' | wc -l)
+#             echo $SCAN_RESULTS
           
-            if [ $SCAN_RESULTS -gt 0 ]; then
-              echo "Found vulnerabilities"
-              exit 1
-            else
-              echo "No 'CRITICAL' or 'HIGH' vulnerabilities found"
-            fi
-          fi  
-        else
-          echo "Error while reading image in ECR"
-          exit 1
-        fi
-      - echo Done checking vulnerabilities
+#             if [ $SCAN_RESULTS -gt 0 ]; then
+#               echo "Found vulnerabilities"
+#               exit 1
+#             else
+#               echo "No 'CRITICAL' or 'HIGH' vulnerabilities found"
+#             fi
+#           fi  
+#         else
+#           echo "Error while reading image in ECR"
+#           exit 1
+#         fi
+#       - echo Done checking vulnerabilities
 
-      - sed -i 's@PORT@' "8090" '@' tevico-configuration-files/accounts/service.yaml
-      - echo service file updated
-      - cat tevico-configuration-files/accounts/service.yaml
-      - sed -i 's@CONTAINER_IMAGE@'"${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.region}.amazonaws.com/${var.cicd_conf.codebuild_environment_variables.accounts.pre-prod-tevico-accounts}:V1"'@' tevico-configuration-files/accounts/deployment.yaml
-      - sed -i 's@PORT@' "8090" '@' tevico-configuration-files/accounts/deployment.yaml
-      - sed -i 's@PARAMETER_STORE_ENV@'"$PARAMETER_STORE_ENV"'@' tevico-configuration-files/accounts/deployment.yaml
-      - sed -i 's@DEPLOYMENT_REGION@'"$AWS_DEFAULT_REGION"'@' tevico-configuration-files/accounts/deployment.yaml
-      - echo deployment file updated
-      - cat tevico-configuration-files/accounts/deployment.yaml
+#       - sed -i 's@PORT@' "8090" '@' tevico-configuration-files/accounts/service.yaml
+#       - echo service file updated
+#       - cat tevico-configuration-files/accounts/service.yaml
+#       - sed -i 's@CONTAINER_IMAGE@'"${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.region}.amazonaws.com/${var.cicd_conf.codebuild_environment_variables.accounts.pre-prod-tevico-accounts}:V1"'@' tevico-configuration-files/accounts/deployment.yaml
+#       - sed -i 's@PORT@' "8090" '@' tevico-configuration-files/accounts/deployment.yaml
+#       - sed -i 's@PARAMETER_STORE_ENV@'"$PARAMETER_STORE_ENV"'@' tevico-configuration-files/accounts/deployment.yaml
+#       - sed -i 's@DEPLOYMENT_REGION@'"$AWS_DEFAULT_REGION"'@' tevico-configuration-files/accounts/deployment.yaml
+#       - echo deployment file updated
+#       - cat tevico-configuration-files/accounts/deployment.yaml
 
-      - CREDENTIALS=$(aws sts assume-role --role-arn $EKS_KUBECTL_ROLE_ARN --role-session-name codebuild-kubectl --duration-seconds 900)
-      - export AWS_ACCESS_KEY_ID="$(echo ${CREDENTIALS} | jq -r '.Credentials.AccessKeyId')"
-      - export AWS_SECRET_ACCESS_KEY="$(echo ${CREDENTIALS} | jq -r '.Credentials.SecretAccessKey')"
-      - export AWS_SESSION_TOKEN="$(echo ${CREDENTIALS} | jq -r '.Credentials.SessionToken')"
-      - export AWS_EXPIRATION=$(echo ${CREDENTIALS} | jq -r '.Credentials.Expiration')
-      - export KUBECONFIG=$PWD/kubeconfig
-      - aws eks update-kubeconfig --kubeconfig $KUBECONFIG --name var.cicd_conf.codebuild_environment_variables.eks_cluster_name --region $AWS_DEFAULT_REGION
-      #- cat $PWD/kubeconfig  
-      # - export KUBECONFIG=$EKS_CLUSTER_NAME
-      - echo "Check if kubectl get ns works fine:"
-      - kubectl get ns
-      - kubectl apply -k Kubernetes
-      - echo "Deployments done!"
-      - echo "Check if pods are running fine:"
-      - kubectl get pods -n gari
-      - |
+#       - CREDENTIALS=$(aws sts assume-role --role-arn $EKS_KUBECTL_ROLE_ARN --role-session-name codebuild-kubectl --duration-seconds 900)
+#       - export AWS_ACCESS_KEY_ID="$(echo ${CREDENTIALS} | jq -r '.Credentials.AccessKeyId')"
+#       - export AWS_SECRET_ACCESS_KEY="$(echo ${CREDENTIALS} | jq -r '.Credentials.SecretAccessKey')"
+#       - export AWS_SESSION_TOKEN="$(echo ${CREDENTIALS} | jq -r '.Credentials.SessionToken')"
+#       - export AWS_EXPIRATION=$(echo ${CREDENTIALS} | jq -r '.Credentials.Expiration')
+#       - export KUBECONFIG=$PWD/kubeconfig
+#       - aws eks update-kubeconfig --kubeconfig $KUBECONFIG --name var.cicd_conf.codebuild_environment_variables.eks_cluster_name --region $AWS_DEFAULT_REGION
+#       #- cat $PWD/kubeconfig  
+#       # - export KUBECONFIG=$EKS_CLUSTER_NAME
+#       - echo "Check if kubectl get ns works fine:"
+#       - kubectl get ns
+#       - kubectl apply -k Kubernetes
+#       - echo "Deployments done!"
+#       - echo "Check if pods are running fine:"
+#       - kubectl get pods -n gari
+#       - |
         
-        export X=1 && echo $X
-        while [ $X -le 5 ]
-        do
-          echo Waiting for 1 min
-          sleep 60
+#         export X=1 && echo $X
+#         while [ $X -le 5 ]
+#         do
+#           echo Waiting for 1 min
+#           sleep 60
           
-          # Check if Healthcheck is successful
-          STATUS_CODE=$(curl -o -I -L -s -w "%{http_code}" $FQDN)
-          echo $STATUS_CODE
-          if [ ${STATUS_CODE} -eq 200 ]; then
-            echo Healthcheck is complete
-            break
-          else
-            echo Health Check is still pending
-          fi
+#           # Check if Healthcheck is successful
+#           STATUS_CODE=$(curl -o -I -L -s -w "%{http_code}" $FQDN)
+#           echo $STATUS_CODE
+#           if [ ${STATUS_CODE} -eq 200 ]; then
+#             echo Healthcheck is complete
+#             break
+#           else
+#             echo Health Check is still pending
+#           fi
           
-          X=$((X+1))
-          # If $X is 6, image scan is not COMPLETE for 5 min
-          if [ $X -eq 6 ]; then
-            echo Healthcheck on $FQDN failed consecutively for 5 min
-            exit 1
-          fi          
-        done
+#           X=$((X+1))
+#           # If $X is 6, image scan is not COMPLETE for 5 min
+#           if [ $X -eq 6 ]; then
+#             echo Healthcheck on $FQDN failed consecutively for 5 min
+#             exit 1
+#           fi          
+#         done
 #reports:
   #report-name-or-arn:
     #files:
